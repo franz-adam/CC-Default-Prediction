@@ -1,0 +1,154 @@
+---
+title: "Credit Card Default Analysis"
+author: "Franz Adam"
+output:
+  pdf_document: default
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This project focuses on the prediction of credit card payment defaults using information on historical default payments, demographic factors, credit data, history of payment, and bill statements of credit card clients. The goal is to identify correlating variables and use them to build a decently successful machine learning model to predict credit card payment default. Credit card companies could use a model like this to detect credit card payment default earlier and freeze accounts or take any other preemptive measurements.
+
+## Summary Statistics
+The original dataset, whose subset we will be working with, contains information on 30,0000 credit card clients in Taiwan from April 2005 to September 2005. The currency used is NT (Newer Taiwan) Dollar, which we will change to a real US Dollar representation. The exchange rate from US dollar to NT Dollar in 2005 was roughly 0.03 and ~1.4 is the adjusted inflation rate of the US dollar from 2005 to 2021 (Yahoo Finance).
+
+There are 25 variables in the original dataset and we will only be working with 7 of them in R, which are: <br/>
+LIMIT_BAL: Amount of given credit in NT dollars (includes individual and family/supplementary credit<br/>
+SEX: Gender (1=male, 2=female)<br/>
+EDUCATION: (1=graduate school, 2=university, 3=high school)<br/>
+MARRIAGE: Marital status (1=married, 2=single)<br/>
+AGE: Age in years<br/>
+BILL_AMT1: Amount of bill statement in September<br/>
+default: Default payment next month (October) (1=yes, 0=no)<br/>
+
+Load Dataset:
+```{r}
+data <- read.csv("credit_card_default.csv")
+library(AER)
+```
+
+Pre-Process Data:
+```{r}
+data$default <- data$default.payment_next_month
+data = subset(data, select = -c(ID, PAY_0, PAY_2, PAY_3, PAY_4, PAY_5, PAY_6, BILL_AMT2, BILL_AMT3, BILL_AMT4, BILL_AMT5, BILL_AMT6, PAY_AMT1, PAY_AMT2, PAY_AMT3, PAY_AMT4, PAY_AMT5, PAY_AMT6, default.payment_next_month) )
+
+data <- subset(data, MARRIAGE < 3)
+data <- subset(data, EDUCATION < 4)
+```
+
+Change 2005 NT Dollar to real US Dollar. 
+```{r}
+adj.rate = 0.033*1.4
+data$LIMIT_BAL <- round((data$LIMIT_BAL)*adj.rate, digits = 0)
+data$BILL_AMT1 <- round((data$BILL_AMT1)*adj.rate, digits = 0)
+```
+
+## Summary of the data:
+```{r}
+library(psych)
+describe(data)
+```
+
+## Main Analysis
+We will run linear probability models in R and we will run a logistic regression and K-Nearest Neighbors Analysis in Python. We will also discuss the Classic Linear Regression Model assumptions and their applicability to our data.
+
+## Scatter Plot
+Let's start by running our first linear probability model. As we are running a Linear Probability model and dealing with a binary dependent variable, we will have Heteroskedasticity. So let us run this regresion with robust standard errors.
+```{r}
+one.lm <- lm(default ~ AGE, data=data)
+summary(one.lm)
+```
+```{r}
+plot(x = data$AGE, 
+     y = data$default,
+     main = "Default Probability on Client's Age",
+     xlab = "Age",
+     ylab = "Default",
+     pch = 20,
+     ylim = c(-0.4, 1.4),
+     cex.main = 0.8)
+
+# add horizontal dashed lines and text
+abline(h = 1, lty = 2, col = "darkred")
+abline(h = 0, lty = 2, col = "darkred")
+text(60, .9, cex = 0.8, "Default")
+text(60, -0.1, cex= 0.8, "No Default")
+
+```
+```{r}
+coeftest(one.lm, vcov. = vcovHC, type = "HC1")
+```
+We can interpret the coefficient of AGE as follows:
+A one year increase in the client's age leads to an increase in the probability of credit card payment default of 0.05 %.
+Although AGE is statistically significant at the 5% level (with robust standard errors) this correlation is practically insignificant.
+
+Now let us run a regression with AGE and LIM_BAL.
+```{r}
+two.lm = lm(default ~ AGE + LIMIT_BAL, data=data)
+coeftest(two.lm, vcov. = vcovHC, type = "HC1")
+```
+We can interpret the coefficient of LIM_BAL as follows:
+A 10,000$ increase in the client's total credit leads to a decrease in the probability of credit card payment default of -1.1015e-05*(10,000) =  11 %. This is a reasonable result as people with more total credit usually have a better credit score and a lower risk of defaulting on a payment in the first place. 
+LIM_BAL is statistically significant at the .1% level (with robust standard errors) this correlation is economically very significant.
+Another thing we notice is that AGE is now statistically more significant (.1 % level). This can be explained due to the correlation between Age and the total credit amount incurred by a client. They are intuitively strongly related, as Age plays an important role in applying and approval for credit.  
+
+Let us run a third regression with the binary variable SEX now included.
+
+```{r}
+data$SEX = ifelse(data$SEX == 2, 0, 1)
+```
+We now have the values for SEX (0 = female, 1 = male).
+
+```{r}
+three.lm = lm(default ~ AGE + LIMIT_BAL + SEX, data=data)
+coeftest(three.lm, vcov. = vcovHC, type = "HC1")
+```
+We can interpret the coefficient of SEX and MARRIAGE as follows:
+There is a 0.027 or 2.7% increase in the probability of credit card payment default when the client is Male. This is a statistically significant result at the .1% level and is also somewhat practically significant.  
+
+```{r}
+four.lm = lm(default ~ AGE + LIMIT_BAL + SEX + BILL_AMT1, data=data)
+coeftest(four.lm, vcov. = vcovHC, type = "HC1")
+```
+When we include BILL_AMT1, the other explanatory variables do not change very much. BILL_AMT1 is statistically significant but not economically. 
+
+## Six Assumptions
+
+### Assumption 1 - Linear Relationship in Population
+
+In the population, the relationship between y and the explanatory variables is linear. We can argue that this assumption is true for our experiment. There seems to be a linear relationship between things like 
+
+### Assumption 2 - Random Sampling
+This assumption does not hold. If we assume the population to be all people in Taiwan, then we know that, even if the clients were randomly chosen, the data solely comes from one financial organisation, whose set of clients does not include all people in Taiwan. 
+
+### Assumption 3 - No Perfect Collinearity
+In the sample, none of the independent variables is constant and there are no exact linear relationships among the independent variables. I think that this assumption holds for our dataset, at least there are no clear perfect linear relationships identifiable. The correlation heatmap shows that there is no perfect collinearity between any explanatory variables.
+
+### Assumption 4 - Zero Conditional Mean
+Assumption 4 states that the values of the explanatory variables does not contain any information about the mean of the unobserved factors. This  assumption does not hold, as we have variables that contain information of the payment status for the most recent month. As we do not observe the months prior, and it is safe to assume that a delayed payment in September contains information about the payment status in August, we can argue that assumption 4 does not hold. We could get rid of all payment related variables that deal with historical payments and only focus on explanatory variables like SEX, EDUCATION, MARRIAGE and AGE. 
+
+### Assumption 5 - Homoskedasticity
+Not for any values of any explanatory variables should the variance of the unobserved factors be influenced. 
+As we are running linear probability models, we can conclude that we are experiencing Heteroskedasticity and therefore this assumption is violated. In the models, we are using robust standard errors. 
+
+### Assumption 6 - Normality of error terms
+The population error u is independent of the explanatory variables and is normally distributed with zero mean and variance $\sigma^2$.
+```{r}
+residuals <- resid(two.lm)
+steps <- (max(residuals)-min(residuals))/100
+
+hist(residuals,freq=F)
+lines(seq(min(residuals), max(residuals), by=steps), dnorm(seq(min(residuals), max(residuals), by=steps), 0, sd(residuals)), col="dark green")
+```
+The error does not seem to be normally distributed with 0 and $\sigma^2$.
+
+One thing we could try is to look for more important variables that are currentyl omitted and perhaps when including those, assumption 6 will hold.
+
+## Conclusion
+That was a very interesting task. We could identify some variables that play a significant role in credit card payment default, which I think was a good achievement. I did not quite go into as much depth as I would have hoped, both in the R part and in the python part, mainly because I ran out of time, but I did gain some valuable experience in both the subject itself and also in working unsupervised. I have to say the dataset I used turned out to be not as useable as I thought. However, to finally apply things we learned in class to a real life scenario and do something practical was enjoyable. 
